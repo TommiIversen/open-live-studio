@@ -8,7 +8,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm build
+RUN npx vite build
 
 # Stage 2: serve with nginx
 FROM nginx:1.27-alpine
@@ -20,14 +20,7 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # nginx config — serve index.html for all routes (SPA fallback)
-RUN printf 'server {\n\
-    listen %PORT%;\n\
-    root /usr/share/nginx/html;\n\
-    index index.html;\n\
-    location / {\n\
-        try_files $uri $uri/ /index.html;\n\
-    }\n\
-}\n' > /etc/nginx/conf.d/default.conf.template
+RUN echo 'server { listen %PORT%; root /usr/share/nginx/html; index index.html; location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf.template
 
 # Entrypoint: inject runtime env vars then start nginx
 COPY docker-entrypoint.sh /docker-entrypoint.sh
