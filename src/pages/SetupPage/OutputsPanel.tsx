@@ -3,6 +3,7 @@ import { useOutputsStore, type OutputType } from '@/store/outputs.store'
 import { useProductionsStore } from '@/store/productions.store'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { StatusDot } from '@/components/ui/StatusDot'
 
 const CREATABLE_OUTPUT_TYPES: OutputType[] = ['mpegtssrt', 'efpsrt']
 
@@ -19,7 +20,7 @@ function timeSince(ts: number): string {
   return `${Math.floor(secs / 60)}m ago`
 }
 
-const inputCls = 'w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:ring-1 focus:ring-[--color-accent]'
+const inputCls = 'w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30'
 
 export function OutputsPanel() {
   const { outputs, isLoading, lastFetchedAt, addOutput, updateOutput, removeOutput } = useOutputsStore()
@@ -35,6 +36,8 @@ export function OutputsPanel() {
   const [editTarget, setEditTarget] = useState<{ id: string; name: string; url: string } | null>(null)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [addUrlError, setAddUrlError] = useState<string | null>(null)
+  const [editUrlError, setEditUrlError] = useState<string | null>(null)
 
   const [newName, setNewName] = useState('')
   const [newType, setNewType] = useState<OutputType>('mpegtssrt')
@@ -44,10 +47,13 @@ export function OutputsPanel() {
     setNewName('')
     setNewType('mpegtssrt')
     setNewUrl('srt://:43524?mode=listener')
+    setAddUrlError(null)
   }
 
   async function handleAdd() {
     if (!newName.trim() || !newUrl.trim()) return
+    const duplicate = outputs.find((o) => o.url?.trim() === newUrl.trim())
+    if (duplicate) { setAddUrlError(`Address already used by "${duplicate.name}"`); return }
     await addOutput({ name: newName.trim(), outputType: newType, url: newUrl.trim() })
     resetAdd()
     setAddOpen(false)
@@ -55,7 +61,12 @@ export function OutputsPanel() {
 
   async function handleEdit() {
     if (!editTarget || !editTarget.name.trim()) return
-    await updateOutput(editTarget.id, { name: editTarget.name.trim(), url: editTarget.url.trim() || undefined })
+    const url = editTarget.url.trim()
+    if (url) {
+      const duplicate = outputs.find((o) => o.id !== editTarget.id && o.url?.trim() === url)
+      if (duplicate) { setEditUrlError(`Address already used by "${duplicate.name}"`); return }
+    }
+    await updateOutput(editTarget.id, { name: editTarget.name.trim(), url: url || undefined })
     setEditTarget(null)
   }
 
@@ -89,8 +100,14 @@ export function OutputsPanel() {
           return (
             <div
               key={o.id}
-              className="flex items-center gap-3 px-3 py-2.5 rounded bg-[--color-surface-3] border border-[--color-border] hover:border-zinc-600 transition-colors"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded bg-[--color-surface-3] border transition-colors ${
+                inActiveProd
+                  ? 'border-[--color-border] hover:border-zinc-600 cursor-not-allowed'
+                  : 'border-[--color-border] hover:border-orange-500 cursor-pointer'
+              }`}
+              onClick={() => !inActiveProd && setEditTarget({ id: o.id, name: o.name, url: o.url ?? '' })}
             >
+              <StatusDot color={inActiveProd ? 'red' : 'gray'} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-[--color-text-primary] truncate">{o.name}</span>
@@ -102,15 +119,22 @@ export function OutputsPanel() {
                   <span className="text-xs text-[--color-text-muted] font-mono truncate block">{o.url}</span>
                 )}
               </div>
-              <Button size="sm" variant="ghost" onClick={() => setEditTarget({ id: o.id, name: o.name, url: o.url ?? '' })} className="text-white hover:text-[--color-accent]">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); !inActiveProd && setEditTarget({ id: o.id, name: o.name, url: o.url ?? '' }) }}
+                disabled={inActiveProd}
+                className="text-white hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                title={inActiveProd ? 'Cannot edit output in an active production' : 'Edit output'}
+              >
                 Edit
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => { setDeleteError(null); setDeleteTargetId(o.id) }}
+                onClick={(e) => { e.stopPropagation(); setDeleteError(null); setDeleteTargetId(o.id) }}
                 disabled={inActiveProd}
-                className="text-white hover:text-red-400"
+                className="text-white hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
                 title={inActiveProd ? 'Output is in an active production' : 'Delete output'}
               >
                 Delete
@@ -165,7 +189,7 @@ export function OutputsPanel() {
                   className={`py-2 rounded text-sm border transition-colors ${
                     newType === t
                       ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white'
-                      : 'bg-[var(--color-surface-2)] border-[var(--color-border-strong)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
+                      : 'bg-[var(--color-surface-2)] border-[var(--color-border-strong)] text-[var(--color-text-muted)] hover:text-orange-500'
                   }`}
                 >
                   {OUTPUT_TYPE_LABELS[t]}
@@ -178,10 +202,11 @@ export function OutputsPanel() {
             <input
               type="text"
               value={newUrl}
-              onChange={(e) => setNewUrl(e.target.value)}
+              onChange={(e) => { setNewUrl(e.target.value); setAddUrlError(null) }}
               placeholder="srt://:43524?mode=listener"
               className={inputCls}
             />
+            {addUrlError && <p className="text-xs text-red-400 mt-1">{addUrlError}</p>}
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" onClick={() => { resetAdd(); setAddOpen(false) }}>Cancel</Button>
@@ -194,7 +219,7 @@ export function OutputsPanel() {
 
       {/* Edit modal */}
       {editTarget && (
-        <Modal open title="Edit Output" onClose={() => setEditTarget(null)}>
+        <Modal open title="Edit Output" onClose={() => { setEditTarget(null); setEditUrlError(null) }}>
           <div className="flex flex-col gap-3">
             <div>
               <label className="text-xs text-[--color-text-muted] uppercase tracking-wider block mb-1">Name</label>
@@ -210,12 +235,13 @@ export function OutputsPanel() {
               <input
                 type="text"
                 value={editTarget.url}
-                onChange={(e) => setEditTarget({ ...editTarget, url: e.target.value })}
+                onChange={(e) => { setEditTarget({ ...editTarget, url: e.target.value }); setEditUrlError(null) }}
                 className={inputCls}
               />
+              {editUrlError && <p className="text-xs text-red-400 mt-1">{editUrlError}</p>}
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setEditTarget(null)}>Cancel</Button>
+              <Button variant="ghost" onClick={() => { setEditTarget(null); setEditUrlError(null) }}>Cancel</Button>
               <Button variant="active" onClick={() => void handleEdit()} disabled={!editTarget.name.trim()}>
                 Save
               </Button>

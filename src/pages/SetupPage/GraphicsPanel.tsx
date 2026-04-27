@@ -3,6 +3,7 @@ import { useGraphicsStore } from '@/store/graphics.store'
 import { useProductionsStore } from '@/store/productions.store'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { StatusDot } from '@/components/ui/StatusDot'
 
 function timeSince(ts: number): string {
   const secs = Math.floor((Date.now() - ts) / 1000)
@@ -63,8 +64,14 @@ export function GraphicsPanel() {
           return (
             <div
               key={g.id}
-              className="flex items-center gap-3 px-3 py-2.5 rounded bg-[--color-surface-3] border border-[--color-border] hover:border-zinc-600 transition-colors"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded bg-[--color-surface-3] border transition-colors ${
+                inActiveProduction
+                  ? 'border-[--color-border] hover:border-zinc-600 cursor-not-allowed'
+                  : 'border-[--color-border] hover:border-orange-500 cursor-pointer'
+              }`}
+              onClick={() => !inActiveProduction && setEditTarget({ id: g.id, name: g.name, url: g.url })}
             >
+              <StatusDot color={inActiveProduction ? 'red' : 'gray'} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-[--color-text-primary] truncate">{g.name}</span>
@@ -77,17 +84,19 @@ export function GraphicsPanel() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setEditTarget({ id: g.id, name: g.name, url: g.url })}
-                className="text-white hover:text-[--color-accent]"
+                onClick={(e) => { e.stopPropagation(); !inActiveProduction && setEditTarget({ id: g.id, name: g.name, url: g.url }) }}
+                disabled={inActiveProduction}
+                className="text-white hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                title={inActiveProduction ? 'Cannot edit graphic in an active production' : 'Edit graphic'}
               >
                 Edit
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setDeleteTargetId(g.id)}
+                onClick={(e) => { e.stopPropagation(); setDeleteTargetId(g.id) }}
                 disabled={inActiveProduction}
-                className="text-white hover:text-red-400"
+                className="text-white hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed"
                 title={inActiveProduction ? 'Graphic is in an active production' : 'Delete graphic'}
               >
                 Delete
@@ -135,7 +144,7 @@ export function GraphicsPanel() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Lower Third"
-              className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:ring-1 focus:ring-[--color-accent]"
+              className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30"
             />
           </div>
           <div>
@@ -145,7 +154,7 @@ export function GraphicsPanel() {
               value={newUrl}
               onChange={(e) => setNewUrl(e.target.value)}
               placeholder="https://example.com/overlay"
-              className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:ring-1 focus:ring-[--color-accent]"
+              className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30"
             />
           </div>
           <div className="flex justify-end gap-2 pt-1">
@@ -171,7 +180,7 @@ export function GraphicsPanel() {
                 type="text"
                 value={editTarget.name}
                 onChange={(e) => setEditTarget({ ...editTarget, name: e.target.value })}
-                className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:ring-1 focus:ring-[--color-accent]"
+                className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30"
               />
             </div>
             <div>
@@ -180,7 +189,7 @@ export function GraphicsPanel() {
                 type="url"
                 value={editTarget.url}
                 onChange={(e) => setEditTarget({ ...editTarget, url: e.target.value })}
-                className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:ring-1 focus:ring-[--color-accent]"
+                className="w-full px-3 py-2 rounded bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500/30"
               />
             </div>
             <div className="flex justify-end gap-2 pt-1">
