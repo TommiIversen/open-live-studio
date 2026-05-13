@@ -10,14 +10,16 @@ import { DskPanel } from './DskPanel'
 import { MacroBar } from './MacroBar'
 import { AudioPanel } from './AudioPanel'
 import { TimerBar } from './TimerBar'
+import { Modal } from '@/components/ui/Modal'
+import { Button } from '@/components/ui/Button'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useProductionStore } from '@/store/production.store'
 import { useIsOnAir } from '@/store/programClock.store'
 import { useProductionsStore } from '@/store/productions.store'
 import { useSourcesStore } from '@/store/sources.store'
 import { useGraphicsStore } from '@/store/graphics.store'
-import { useStatsStore } from '@/store/stats.store'
 import { useAudioStore } from '@/store/audio.store'
-import { audioApi } from '@/lib/api'
+import { audioApi, type ApiProduction } from '@/lib/api'
 
 // ─── Panel layout persistence ─────────────────────────────────────────────────
 
@@ -45,8 +47,66 @@ function savePanels(panels: Panels) {
   try { localStorage.setItem(PANELS_STORAGE_KEY, JSON.stringify(panels)) } catch {}
 }
 
+// ─── Panel options persistence ────────────────────────────────────────────────
+
+const ALL_TRANSITIONS = ['fade', 'slide_left', 'slide_right', 'slide_up', 'slide_down'] as const
+const DEFAULT_TRANSITIONS = ['fade', 'slide_left', 'slide_right']
+
+const TRANSITION_LABELS: Record<string, string> = {
+  fade:        'Fade',
+  slide_left:  'Push Left',
+  slide_right: 'Push Right',
+  slide_up:    'Push Up',
+  slide_down:  'Push Down',
+}
+
+const AUDIO_OPTIONS_KEY      = 'ol-studio-audio-options'
+const CONTROLLER_OPTIONS_KEY = 'ol-studio-controller-options'
+
+type AudioOptions      = { rampMs: number }
+type ControllerOptions = { visibleTransitions: string[] }
+
+function loadAudioOptions(): AudioOptions {
+  try {
+    const raw = localStorage.getItem(AUDIO_OPTIONS_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<AudioOptions>
+      return { rampMs: typeof p.rampMs === 'number' ? p.rampMs : 200 }
+    }
+  } catch {}
+  return { rampMs: 200 }
+}
+
+function loadControllerOptions(): ControllerOptions {
+  try {
+    const raw = localStorage.getItem(CONTROLLER_OPTIONS_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as Partial<ControllerOptions>
+      const vt = Array.isArray(p.visibleTransitions) ? p.visibleTransitions.filter((t) => (ALL_TRANSITIONS as readonly string[]).includes(t)) : []
+      return { visibleTransitions: vt.length > 0 ? vt : DEFAULT_TRANSITIONS }
+    }
+  } catch {}
+  return { visibleTransitions: DEFAULT_TRANSITIONS }
+}
+
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
+function CloseIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="2" y1="2" x2="14" y2="14" />
+      <line x1="14" y1="2" x2="2" y2="14" />
+    </svg>
+  )
+}
+function GearIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+      <path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    </svg>
+  )
+}
 function PopOutIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -57,22 +117,32 @@ function PopOutIcon() {
   )
 }
 
-function SectionLabel({ icon, children, onPopOut, actions }: { icon: ReactNode; children: string; onPopOut?: () => void; actions?: ReactNode }) {
+function SectionLabel({ icon, children, onPopOut, onHide, actions }: { icon: ReactNode; children: string; onPopOut?: () => void; onHide?: () => void; actions?: ReactNode }) {
   return (
     <div className="flex items-center gap-1.5 text-[--color-text-muted]">
       {icon}
       <span className="text-[10px] font-semibold uppercase tracking-widest">{children}</span>
+      {actions}
       {onPopOut && (
         <button
           type="button"
           onClick={onPopOut}
           title={`Pop out ${children}`}
-          className="ml-0.5 cursor-pointer hover:text-[--color-text-primary] transition-colors"
+          className="cursor-pointer hover:text-[--color-text-primary] transition-colors"
         >
           <PopOutIcon />
         </button>
       )}
-      {actions}
+      {onHide && (
+        <button
+          type="button"
+          onClick={onHide}
+          title={`Hide ${children}`}
+          className="cursor-pointer hover:text-[--color-text-primary] transition-colors"
+        >
+          <CloseIcon />
+        </button>
+      )}
     </div>
   )
 }
@@ -160,6 +230,165 @@ function AudioIcon() {
   )
 }
 
+// ─── Source offset input ───────────────────────────────────────────────────────
+// Owns local string state so the field can be freely edited (cleared, typed into)
+// without the controlled-value snapping back. Fires the WS message on every valid
+// parse. On blur, resets to the last server-confirmed value if the field is blank/invalid.
+
+// Simple draft offset input — no live WS send, just local string state to
+// prevent "0 stuck" on controlled inputs. Parent owns the numeric draft value.
+function SourceOffsetInput({
+  label,
+  draftValue,
+  onChange,
+}: {
+  label: string
+  draftValue: number
+  onChange: (val: number) => void
+}) {
+  const [text, setText] = useState(() => String(draftValue))
+
+  // Keep text in sync when the parent resets draft (e.g. modal re-opens)
+  // but never clobber what the user is actively typing.
+  const isFocusedRef = useRef(false)
+  useEffect(() => {
+    if (!isFocusedRef.current) setText(String(draftValue))
+  }, [draftValue])
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={text}
+      onFocus={() => { isFocusedRef.current = true }}
+      onBlur={() => {
+        isFocusedRef.current = false
+        const parsed = parseFloat(text)
+        if (!Number.isFinite(parsed)) setText(String(draftValue))
+      }}
+      onChange={(e) => {
+        const raw = e.target.value
+        setText(raw)
+        const val = parseFloat(raw)
+        if (Number.isFinite(val)) onChange(val)
+      }}
+      className="w-20 text-right text-[11px] bg-[--color-surface-2] border border-[--color-border] rounded px-2 py-0.5 text-[--color-text-primary] focus:outline-none focus:border-orange-500"
+      aria-label={`${label} time offset ms`}
+    />
+  )
+}
+
+// ─── Controller options modal content ─────────────────────────────────────────
+
+function ControllerOptionsContent({
+  controllerOptions,
+  setControllerOptions,
+  activeProduction,
+  send,
+  onClose,
+}: {
+  controllerOptions: ControllerOptions
+  setControllerOptions: (opts: ControllerOptions) => void
+  activeProduction: ApiProduction | undefined
+  send: (msg: import('@/hooks/useControllerWs').OutboundMessage) => void
+  onClose: () => void
+}) {
+  const sources = useSourcesStore((s) => s.sources)
+  const sourceOffsets = useProductionStore((s) => s.sourceOffsets)
+
+  // All edits are local until Done is pressed.
+  const [draftTransitions, setDraftTransitions] = useState<string[]>(
+    () => controllerOptions.visibleTransitions,
+  )
+  const [draftOffsets, setDraftOffsets] = useState<Record<string, number>>(
+    () => ({ ...sourceOffsets }),
+  )
+
+  // Sort assignments by mixerInput for stable display order
+  const assignments = [...(activeProduction?.sources ?? [])].sort((a, b) =>
+    a.mixerInput.localeCompare(b.mixerInput),
+  )
+
+  function handleDone() {
+    // Commit transitions
+    const opts = { ...controllerOptions, visibleTransitions: draftTransitions }
+    setControllerOptions(opts)
+    try { localStorage.setItem(CONTROLLER_OPTIONS_KEY, JSON.stringify(opts)) } catch {}
+
+    // Send changed offsets via WS
+    for (const { mixerInput } of assignments) {
+      const current = sourceOffsets[mixerInput] ?? 0
+      const draft   = draftOffsets[mixerInput] ?? 0
+      if (draft !== current) {
+        send({ type: 'SOURCE_OFFSET_SET', mixerInput, offsetMs: draft })
+      }
+    }
+
+    onClose()
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Visible transitions */}
+      <div className="flex flex-col gap-2">
+        <span className="text-xs text-[--color-text-muted]">Visible transitions</span>
+        {ALL_TRANSITIONS.map((t) => {
+          const checked = draftTransitions.includes(t)
+          const isLast  = draftTransitions.length === 1 && checked
+          return (
+            <label key={t} className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={isLast}
+                onChange={() => {
+                  setDraftTransitions(checked
+                    ? draftTransitions.filter((x) => x !== t)
+                    : [...draftTransitions, t])
+                }}
+                className="accent-orange-500"
+              />
+              <span className="text-sm text-[--color-text-primary] text-[11px]">{TRANSITION_LABELS[t] ?? t}</span>
+            </label>
+          )
+        })}
+      </div>
+
+      {/* Source time offsets — only shown when a production with sources is active */}
+      {assignments.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-[--color-text-muted]">Source timing (ms)</span>
+          <p className="text-[10px] text-[--color-text-muted] leading-snug">
+            Positive values delay the source to align with slower cameras.
+          </p>
+          {assignments.map((assignment) => {
+            const src = sources.find((s) => s.id === assignment.sourceId)
+            const name = src?.name ?? assignment.mixerInput
+            return (
+              <div key={assignment.mixerInput} className="flex items-center gap-2">
+                <span className="text-[11px] text-[--color-text-primary] flex-1 truncate" title={name}>
+                  {name}
+                </span>
+                <SourceOffsetInput
+                  label={name}
+                  draftValue={draftOffsets[assignment.mixerInput] ?? 0}
+                  onChange={(val) =>
+                    setDraftOffsets((prev) => ({ ...prev, [assignment.mixerInput]: val }))
+                  }
+                />
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <Button variant="active" size="sm" onClick={handleDone}>Done</Button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function ControllerPage() {
@@ -181,15 +410,22 @@ export function ControllerPage() {
     void fetchProductions()
     void fetchSources()
     void fetchGraphics()
-    const id = setInterval(() => void fetchProductions(), 15000)
-    return () => clearInterval(id)
   }, [fetchProductions, fetchSources, fetchGraphics])
 
   const [searchParams] = useSearchParams()
   const [panels, setPanels] = useState<Panels>(loadPanels)
   const [multiviewerMuted, setMultiviewerMuted] = useState(true)
+  const [pgmMuted, setPgmMuted] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isPgmFullscreen, setIsPgmFullscreen] = useState(false)
+  const [audioOptions, setAudioOptions] = useState<AudioOptions>(loadAudioOptions)
+  const [controllerOptions, setControllerOptions] = useState<ControllerOptions>(loadControllerOptions)
+  const [audioOptionsOpen, setAudioOptionsOpen] = useState(false)
+  const [rampMsText, setRampMsText] = useState(() => String(loadAudioOptions().rampMs))
+  useEffect(() => { if (audioOptionsOpen) setRampMsText(String(audioOptions.rampMs)) }, [audioOptionsOpen]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [controllerOptionsOpen, setControllerOptionsOpen] = useState(false)
   const multiviewerRef = useRef<HTMLDivElement>(null)
+  const pgmRef = useRef<HTMLDivElement>(null)
   const programPreviewRef = useRef<ProgramPreviewHandle>(null)
 
   const togglePanel = (key: keyof Panels) => {
@@ -217,18 +453,6 @@ export function ControllerPage() {
   // WebSocket stays connected regardless of panel visibility (syncs tally + audio state)
   const send = useControllerWs(activeProductionId)
 
-  const startPolling = useStatsStore((s) => s.startPolling)
-  const stopPolling  = useStatsStore((s) => s.stopPolling)
-
-  useEffect(() => {
-    if (activeProductionId) {
-      startPolling(activeProductionId)
-    } else {
-      stopPolling()
-    }
-    return () => stopPolling()
-  }, [activeProductionId, startPolling, stopPolling])
-
   const setElements = useAudioStore((s) => s.setElements)
 
   useEffect(() => {
@@ -244,13 +468,13 @@ export function ControllerPage() {
 
   const handleCut = useCallback(() => {
     cut()
-    send({ type: 'CUT', mixerInput: pvwInput ?? '' })
-  }, [cut, send, pvwInput])
+    send({ type: 'CUT', mixerInput: pvwInput ?? '', afvRampMs: audioOptions.rampMs })
+  }, [cut, send, pvwInput, audioOptions.rampMs])
 
   const handleAuto = useCallback(() => {
     auto()
-    send({ type: 'TRANSITION', mixerInput: pvwInput ?? '', transitionType, durationMs: transitionDurationMs })
-  }, [auto, send, pvwInput, transitionType, transitionDurationMs])
+    send({ type: 'TRANSITION', mixerInput: pvwInput ?? '', transitionType, durationMs: transitionDurationMs, afvRampMs: audioOptions.rampMs })
+  }, [auto, send, pvwInput, transitionType, transitionDurationMs, audioOptions.rampMs])
 
   const handleFtb = useCallback(() => { ftb(); send({ type: 'FTB', durationMs: transitionDurationMs }) }, [ftb, send, transitionDurationMs])
   const handleSetOvl = useCallback((alpha: number) => { send({ type: 'SET_OVL', alpha }) }, [send])
@@ -272,7 +496,10 @@ export function ControllerPage() {
   }, [handleKeyDown])
 
   useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement)
+    const onFsChange = () => {
+      setIsFullscreen(document.fullscreenElement === multiviewerRef.current)
+      setIsPgmFullscreen(document.fullscreenElement === pgmRef.current)
+    }
     document.addEventListener('fullscreenchange', onFsChange)
     return () => document.removeEventListener('fullscreenchange', onFsChange)
   }, [])
@@ -282,6 +509,14 @@ export function ControllerPage() {
       void document.exitFullscreen()
     } else {
       void multiviewerRef.current?.requestFullscreen()
+    }
+  }, [])
+
+  const handlePgmFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+    } else {
+      void pgmRef.current?.requestFullscreen()
     }
   }, [])
 
@@ -303,6 +538,7 @@ export function ControllerPage() {
   const showBottomRow = panels.controller || panels.audio
 
   return (
+    <>
     <div className="flex flex-col flex-1 min-h-0" style={{ background: '#000000' }}>
       <PageHeader
         title={
@@ -359,7 +595,8 @@ export function ControllerPage() {
                 <div className="flex-none">
                   <SectionLabel
                     icon={<MultiviewerIcon />}
-                    onPopOut={activeProductionId ? () => { window.open(`/pane/multiviewer?production=${activeProductionId}`, '_blank', 'noopener'); togglePanel('multiviewer') } : undefined}
+                    onPopOut={activeProductionId ? () => { window.open(`/pane/multiviewer?production=${activeProductionId}`, '_blank', 'noopener') } : undefined}
+                    onHide={() => togglePanel('multiviewer')}
                     actions={
                       <>
                         <button
@@ -396,17 +633,38 @@ export function ControllerPage() {
 
             {/* PGM — self-contained WebRTC, independent of multiviewer stream */}
             {panels.pgm && pgmWhepEndpoint && (
-              <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-1.5">
+              <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-1.5" ref={pgmRef}>
                 <div className="flex-none">
                   <SectionLabel
                     icon={<MonitorIcon />}
-                    onPopOut={activeProductionId ? () => { window.open(`/pane/pgm?production=${activeProductionId}`, '_blank', 'noopener'); togglePanel('pgm') } : undefined}
+                    onPopOut={activeProductionId ? () => { window.open(`/pane/pgm?production=${activeProductionId}`, '_blank', 'noopener') } : undefined}
+                    onHide={() => togglePanel('pgm')}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setPgmMuted((m) => !m)}
+                          title={pgmMuted ? 'Unmute PGM' : 'Mute PGM'}
+                          className="cursor-pointer hover:text-[--color-text-primary] transition-colors"
+                        >
+                          {pgmMuted ? <MutedIcon /> : <MuteIcon />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePgmFullscreen}
+                          title={isPgmFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                          className="cursor-pointer hover:text-[--color-text-primary] transition-colors"
+                        >
+                          {isPgmFullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
+                        </button>
+                      </>
+                    }
                   >
                     PGM
                   </SectionLabel>
                 </div>
                 <div className="flex-1 min-h-0 flex items-center justify-center">
-                  <PgmPreview whepEndpoint={pgmWhepEndpoint} />
+                  <PgmPreview whepEndpoint={pgmWhepEndpoint} muted={pgmMuted} />
                 </div>
               </div>
             )}
@@ -419,9 +677,11 @@ export function ControllerPage() {
           <div className="flex flex-none pt-2 pb-3 gap-0">
             {panels.controller && (
               <div className={`px-3 flex flex-col gap-2 self-stretch ${panels.audio ? 'w-[70%]' : 'flex-1'}`}>
-                <SectionLabel icon={<ControllerIcon />} onPopOut={activeProductionId ? () => { window.open(`/pane/controller?production=${activeProductionId}`, '_blank', 'noopener'); togglePanel('controller') } : undefined}>Controller</SectionLabel>
+                <SectionLabel icon={<ControllerIcon />} onPopOut={activeProductionId ? () => { window.open(`/pane/controller?production=${activeProductionId}`, '_blank', 'noopener') } : undefined} onHide={() => togglePanel('controller')} actions={
+                  <button type="button" onClick={() => setControllerOptionsOpen(true)} title="Controller options" className="cursor-pointer hover:text-[--color-text-primary] transition-colors"><GearIcon /></button>
+                }>Controller</SectionLabel>
                 <div className="flex flex-col flex-1 gap-2">
-                  <TransitionPanel onCut={handleCut} onAuto={handleAuto} onFtb={handleFtb} onSelectPvw={handleSelectPvw} onSetOvl={handleSetOvl} className="flex-1" />
+                  <TransitionPanel onCut={handleCut} onAuto={handleAuto} onFtb={handleFtb} onSelectPvw={handleSelectPvw} onSetOvl={handleSetOvl} className="flex-1" visibleTransitions={controllerOptions.visibleTransitions} />
                   <DskPanel onToggle={handleDskToggle} />
                   {false && activeProductionId && (
                     <MacroBar productionId={activeProductionId!} onExec={handleMacroExec} />
@@ -431,7 +691,9 @@ export function ControllerPage() {
             )}
             {panels.audio && (
               <div className={`flex flex-col gap-2 ${panels.controller ? 'w-[30%] pr-3' : 'flex-1 px-3'}`}>
-                <SectionLabel icon={<AudioIcon />} onPopOut={activeProductionId ? () => { window.open(`/pane/audio?production=${activeProductionId}`, '_blank', 'noopener'); togglePanel('audio') } : undefined}>Audio</SectionLabel>
+                <SectionLabel icon={<AudioIcon />} onPopOut={activeProductionId ? () => { window.open(`/pane/audio?production=${activeProductionId}`, '_blank', 'noopener') } : undefined} onHide={() => togglePanel('audio')} actions={
+                  <button type="button" onClick={() => setAudioOptionsOpen(true)} title="Audio options" className="cursor-pointer hover:text-[--color-text-primary] transition-colors"><GearIcon /></button>
+                }>Audio</SectionLabel>
                 <AudioPanel send={send} />
               </div>
             )}
@@ -439,5 +701,62 @@ export function ControllerPage() {
         )}
       </div>
     </div>
+
+    {/* ── Audio options modal ──────────────────────────────────────────────── */}
+    <Modal open={audioOptionsOpen} title="Audio Options" onClose={() => setAudioOptionsOpen(false)} className="max-w-xs">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <label className="text-xs text-[--color-text-muted] shrink-0">Ramp Time</label>
+          <input
+            type="number"
+            min={0}
+            max={5000}
+            step={50}
+            value={rampMsText}
+            onChange={(e) => {
+              setRampMsText(e.target.value)
+              const parsed = parseInt(e.target.value, 10)
+              if (!isNaN(parsed) && parsed >= 0 && parsed <= 5000) {
+                const next = { ...audioOptions, rampMs: parsed }
+                setAudioOptions(next)
+                try { localStorage.setItem(AUDIO_OPTIONS_KEY, JSON.stringify(next)) } catch {}
+              }
+            }}
+            onBlur={() => {
+              const parsed = parseInt(rampMsText, 10)
+              const clamped = isNaN(parsed) ? 200 : Math.max(0, Math.min(5000, parsed))
+              setRampMsText(String(clamped))
+              const next = { ...audioOptions, rampMs: clamped }
+              setAudioOptions(next)
+              try { localStorage.setItem(AUDIO_OPTIONS_KEY, JSON.stringify(next)) } catch {}
+            }}
+            className="bg-[--color-surface-raised] border border-[--color-border-strong] text-sm text-[--color-text-primary] rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[--color-accent] w-20"
+          />
+          <span className="text-xs text-[--color-text-muted] shrink-0">ms</span>
+          <Tooltip title="Ramp Time" content={
+            <span className="text-[11px] text-zinc-300 max-w-[200px] leading-relaxed">
+              Crossfade ramp applied when audio follows a CUT or transition (default 200 ms). ON/OFF uses Strom's built-in anti-click ramp (~20 ms).
+            </span>
+          }>
+            <span className="flex items-center justify-center w-4 h-4 rounded-full border border-zinc-600 text-zinc-500 hover:text-zinc-300 hover:border-zinc-400 transition-colors cursor-default text-[10px] font-bold leading-none shrink-0">i</span>
+          </Tooltip>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="active" size="sm" onClick={() => setAudioOptionsOpen(false)}>Done</Button>
+        </div>
+      </div>
+    </Modal>
+
+    {/* ── Controller options modal ─────────────────────────────────────────── */}
+    <Modal open={controllerOptionsOpen} title="Controller Options" onClose={() => setControllerOptionsOpen(false)} className="max-w-xs">
+      <ControllerOptionsContent
+        controllerOptions={controllerOptions}
+        setControllerOptions={setControllerOptions}
+        activeProduction={activeProduction}
+        send={send}
+        onClose={() => setControllerOptionsOpen(false)}
+      />
+    </Modal>
+    </>
   )
 }

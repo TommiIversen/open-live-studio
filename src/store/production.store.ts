@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { devtools } from 'zustand/middleware'
 import { useAudioStore } from './audio.store.js'
+import { usePipelineStore } from './pipeline.store.js'
 
-export type TransitionType = 'mix' | 'dip' | 'push'
+export type TransitionType = 'fade' | 'slide_left' | 'slide_right' | 'slide_up' | 'slide_down'
 
 interface ProductionState {
   /** Active mixer input on program, e.g. "video_in_0" */
@@ -17,6 +18,8 @@ interface ProductionState {
   activeProductionId: string | null
   /** Server-confirmed DSK layer visibility: layer index → visible */
   dskState: Record<number, boolean>
+  /** Runtime source time offsets: mixerInput → offsetMs. Synced via WS, reset on production change. */
+  sourceOffsets: Record<string, number>
 }
 
 interface ProductionActions {
@@ -30,6 +33,8 @@ interface ProductionActions {
   setTBarPosition: (pos: number) => void
   setActiveProduction: (id: string | null) => void
   setDskState: (layer: number, visible: boolean) => void
+  /** Server-authoritative offset setter — called by WS handler on SOURCE_OFFSET_STATE */
+  applySourceOffset: (mixerInput: string, offsetMs: number) => void
 }
 
 export const useProductionStore = create<ProductionState & ProductionActions>()(
@@ -39,11 +44,12 @@ export const useProductionStore = create<ProductionState & ProductionActions>()(
       pgmInput: null,
       pvwInput: null,
       isFtb: false,
-      transitionType: 'mix',
+      transitionType: 'fade',
       transitionDurationMs: 1000,
       tBarPosition: 1,
       activeProductionId: null,
       dskState: {},
+      sourceOffsets: {},
 
       // Actions
       cut: () =>
@@ -95,17 +101,29 @@ export const useProductionStore = create<ProductionState & ProductionActions>()(
       setActiveProduction: (id) => {
         set((state) => {
           state.activeProductionId = id
+          state.pgmInput = null
+          state.pvwInput = null
+          state.isFtb = false
+          state.tBarPosition = 1
           state.dskState = {}
+          state.sourceOffsets = {}
         })
         // Clear audio strips synchronously so the new production never renders with
         // a previous production's elements. React 18 batches these two store updates
         // into one render, so the user never sees stale strips.
         useAudioStore.setState({ elements: [], productionId: id ?? null, levels: {}, muted: {}, meters: {} })
+        // Clear pipeline runtime state
+        usePipelineStore.setState({ stromJson: '', executionState: 'idle', uptimeSeconds: 0, parseError: null })
       },
 
       setDskState: (layer, visible) =>
         set((state) => {
           state.dskState[layer] = visible
+        }),
+
+      applySourceOffset: (mixerInput, offsetMs) =>
+        set((state) => {
+          state.sourceOffsets[mixerInput] = offsetMs
         }),
     })),
     { name: 'production' },
